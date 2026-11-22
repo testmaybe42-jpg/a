@@ -1,0 +1,90 @@
+workflows:
+  build-bpre-dmg:
+    name: Build BPRE macOS DMG
+    max_build_duration: 30
+    instance_type: mac_mini_m2
+    scripts:
+      - name: Install create-dmg and fileicon
+        script: |
+          brew install create-dmg fileicon
+
+      - name: Prepare App and Assets
+        script: |
+          set -e
+          # Paste your Discord CDN link for "BP-REBOOTED macOS edition by SoultheHopper.zip" below
+          curl -f -L -o "BPRE_macOS.zip" "https://cdn.discordapp.com/attachments/1462108705410519162/1574078936198160384/BP-REBOOTED_macOS_edition_by_SoultheHopper.zip?ex=6b0456bf&is=6b03053f&hm=a9f336eca4235b9e034cecd44c09cf9fb4d8731375026b1a99dd56d804609aa5&"
+          
+          # Unzip the macOS app
+          unzip -q "BPRE_macOS.zip" -d ./app_extracted
+          
+          # Find the .app while ignoring __MACOSX
+          APP_PATH=$(find ./app_extracted -not -path "*/__MACOSX/*" -name "*.app" -type d | head -n 1)
+          echo "Found app at: $APP_PATH"
+          test -n "$APP_PATH"
+          
+          mkdir -p ./dmg_source
+          cp -R "$APP_PATH" ./dmg_source/
+          ls -la ./dmg_source
+
+          # Ensure executable permissions
+          chmod +x ./dmg_source/*.app/Contents/MacOS/*
+
+          # Convert "BPRE disk dmg.png" to icon.icns
+          mkdir -p icon.iconset
+          sips -z 16 16     "BPRE disk dmg.png" --out icon.iconset/icon_16x16.png
+          sips -z 32 32     "BPRE disk dmg.png" --out icon.iconset/icon_16x16@2x.png
+          sips -z 32 32     "BPRE disk dmg.png" --out icon.iconset/icon_32x32.png
+          sips -z 64 64     "BPRE disk dmg.png" --out icon.iconset/icon_32x32@2x.png
+          sips -z 128 128   "BPRE disk dmg.png" --out icon.iconset/icon_128x128.png
+          sips -z 256 256   "BPRE disk dmg.png" --out icon.iconset/icon_128x128@2x.png
+          sips -z 256 256   "BPRE disk dmg.png" --out icon.iconset/icon_256x256.png
+          sips -z 512 512   "BPRE disk dmg.png" --out icon.iconset/icon_256x256@2x.png
+          sips -z 512 512   "BPRE disk dmg.png" --out icon.iconset/icon_512x512.png
+          sips -z 1024 1024 "BPRE disk dmg.png" --out icon.iconset/icon_512x512@2x.png
+          iconutil -c icns icon.iconset
+
+          # Automatically locate your background PNG anywhere in the repo
+          BG_FILE=$(find . -maxdepth 3 -not -path "./app_extracted/*" -not -path "./icon.iconset/*" -iname "*Background*.png" | head -n 1)
+          echo "Found background at: $BG_FILE"
+          test -n "$BG_FILE"
+          cp "$BG_FILE" "bg_final.png"
+          sips -s dpiWidth 72 -s dpiHeight 72 "bg_final.png"
+
+      - name: Package BPRE.dmg
+        script: |
+          set -e
+          mkdir -p output
+          
+          APP_NAME=""
+          for app in ./dmg_source/*.app; do
+            APP_NAME=$(basename "$app")
+            break
+          done
+          echo "Packaging app: $APP_NAME"
+          test -n "$APP_NAME"
+
+          open -a Finder
+          sleep 2
+
+          create-dmg \
+            --volname "BP-REBOOTED" \
+            --volicon "icon.icns" \
+            --background "bg_final.png" \
+            --window-pos 200 120 \
+            --window-size 660 434 \
+            --icon-size 100 \
+            --icon "$APP_NAME" 180 215 \
+            --hide-extension "$APP_NAME" \
+            --app-drop-link 480 215 \
+            --no-internet-enable \
+            "output/BP-REBOOTED.dmg" \
+            "./dmg_source/"
+
+          # Apply custom blue disk icon directly to the .dmg file
+          fileicon set "output/BP-REBOOTED.dmg" "icon.icns"
+
+          # Wrap in a macOS zip so browser downloads keep the custom file icon
+          ditto -c -k --sequesterRsrc --keepParent "output/BP-REBOOTED.dmg" "output/BP-REBOOTED-macOS.zip"
+
+    artifacts:
+      - output/BP-REBOOTED-macOS.zip
